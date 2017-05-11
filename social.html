@@ -1,0 +1,387 @@
+<html>
+<body>
+<pre>
+server.js:
+
+//Inicializar el servidor Express
+var express = require('express');
+var app = express();
+
+var path = require('path');
+var user = require('./user');
+
+//Session
+var session = require('express-session');
+
+//View Engine
+var ejs = require('ejs');
+
+//Date
+var multer = require('multer');
+
+
+//Body parser para la obtencion del parametros en el request
+var bodyParser= require('body-parser');
+
+//Base de datos
+var mongojs = require('mongojs');
+var usersdb = mongojs('users',['users']);
+var user_imagesdb = mongojs('user_images',['user_images']);
+var user_postsdb = mongojs('user_posts',['user_posts']);
+var moment = require('moment');
+//Cargar archivos
+
+
+
+var name;
+var port = 9050;
+
+var storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        cb(null, 'public/uploads/')
+    },
+    filename: function (req, file, cb) {
+    	name = file.fieldname + '_' + Date.now()+ path.extname(file.originalname);
+        cb(null, name);
+        
+  }
+});
+
+var upload = multer({ storage: storage });
+
+//Setear el template engine
+
+app.set('views', path.join(__dirname, 'views'));
+app.use(express.static(__dirname + '/public'));  //to use style.css
+app.set('view engine', 'ejs');
+
+//Setear la clave para la session
+app.use(session({secret: 'agent007'}));
+
+//Setear el body parser / middleware
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({extended: true}));
+
+
+
+//Ruta para mostrar el home
+app.get('/', function (req, res) {
+
+
+	if(!req.session.logueado){
+
+		res.redirect('/login');
+
+	}else{
+
+		res.redirect('/cuenta');
+
+	}
+
+   
+});
+
+
+
+var avatar = 'uploads/generic.jpeg';
+
+//Ruta para mostrar el perfil del usuario
+app.get('/perfil', function (req, res){
+
+	req.session.image = avatar;
+
+	if(!req.session.logueado){
+
+		res.redirect('/login');
+
+	}
+
+		
+		user_imagesdb.user_images.findOne({user_id : req.session._id},
+
+	    function(err, doc){
+
+		if(err){
+			res.send(err);
+		}
+
+
+		if(doc){
+
+			avatar = doc.image;
+			req.session.image = avatar;
+		}else{
+			avatar = 'uploads/generic.jpeg';
+
+		}
+
+
+		
+	   });
+
+		res.render('profile.ejs',{id : req.session._id , logueado : req.session.logueado, username: req.session.username, nombre: req.session.nombre, image : req.session.image });
+
+
+
+});
+
+//Ruta para mostrar el blog del usuario logueado
+app.get('/cuenta', function (req, res){
+	//res.sendFile(__dirname + '/template.html');
+
+	req.session.image = avatar;
+
+	if(!req.session.logueado){
+
+		res.redirect('/login');
+
+	}
+
+	//usersdb.users.find(function(err, docs){
+	user_postsdb.user_posts.find().sort({created_at : -1}, function(err, docs){
+
+
+		if(err){
+			res.send(err);
+		}
+
+		
+		user_imagesdb.user_images.findOne({user_id : req.session._id},
+
+	    function(err, doc){
+
+		if(err){
+			res.send(err);
+		}
+
+
+		if(doc){
+
+			avatar = doc.image;
+			req.session.image = avatar;
+		}else{
+			avatar = 'uploads/generic.jpeg';
+		}
+
+
+		
+	   });
+
+		res.render('blog.ejs',{posts : docs, id : req.session._id , logueado : req.session.logueado, username: req.session.username, nombre: req.session.nombre, image : req.session.image });
+
+	});
+
+	
+});
+
+
+//Ruta para mostrar el formulario de registro de usuario
+app.get('/crear', function (req, res) {
+   //res.sendFile(__dirname + '/register.html');
+   res.render('register.ejs');
+});
+
+
+//Ruta para crear usuarios
+app.post('/register', function (req, res){
+ 
+ 	var data = {
+
+ 		name: req.body.nombre,
+		username: req.body.username,
+		password: req.body.password,
+		created_at: new Date,
+		updated_at: new Date
+
+	};
+
+	usersdb.users.insert(data, function(err, result){
+
+		if(err){
+			res.json(err);
+	}
+
+		//res.json({message:"Record Saved"});
+		res.redirect('/');
+
+	});
+
+});
+
+//Ruta para mostrar el formulario del login/iniciar session
+app.get('/login', function (req, res) {
+   //res.sendFile(__dirname + '/index');
+
+   if(!req.session.logueado){
+
+		res.render('login.ejs');
+
+	}else{
+
+		res.redirect('/cuenta');
+
+	}
+
+   
+});
+
+
+//Ruta para el Login
+app.post('/login', function (req, res){
+ 
+ 	var data = {
+
+		username: req.body.username,
+		password: req.body.password,
+
+	};
+
+
+	usersdb.users.findOne({username: req.body.username},
+
+	 function(err, doc){
+
+		if(err){
+			res.send(err);
+		}
+
+		if(doc != null){
+
+			pass = doc.password;
+
+			if (req.body.password == pass){
+
+				//res.json({'message':'You are Logged'});
+				req.session._id = doc._id;
+				req.session.nombre = doc.name;
+				req.session.username = doc.username;
+				req.session.password = doc.password;
+				req.session.logueado = true;
+
+				res.redirect('/cuenta');
+
+			}else{
+
+				res.redirect('/login');
+		}
+		}
+		else{
+
+			res.json({'message':'You are not Logged'});
+			
+		}
+
+	});
+
+});
+
+
+//Ruta para Salir de la Aplicacion
+app.get('/logout',function (req,res){
+	req.session.destroy(function (err) {
+  		if(err) {
+    		console.log(err);
+  		} else {
+  			
+    		res.redirect('/');
+  		}
+	});
+});
+
+//Ruta para cargar archivos
+var cpUpload = upload.fields([{ name: 'files', maxCount: 1 }]);
+app.post('/upload', cpUpload, function (req, res, next) {
+   //console.log(req.files.filename);
+   console.log(name);
+
+	var data = {
+
+		user_id: req.body._id,
+		image: "uploads/" + name,
+
+	};
+
+	user_imagesdb.user_images.insert(data, function(err, result){
+
+		if(err){
+			res.json(err);
+	}
+
+		//res.json({message:"Record Saved"});
+		//res.json({message: result});
+		res.redirect('/');
+
+	});
+
+
+   
+});
+
+
+//Ruta para guardar los Posts
+app.post('/post', function (req, res){
+
+  var data = {
+
+  	titulo: req.body.titulo,
+    texto: req.body.texto,
+    user_id : req.body._id,
+    user_name : req.session.nombre,
+    created_at: new Date,
+    updated_at: new Date
+
+  };
+
+  
+
+  user_postsdb.user_posts.insert(data, function(err, result){
+
+    if(err){
+      res.json(err);
+  }
+
+    res.redirect('/');
+
+  });
+});
+
+
+//Puerto de conexion del Servidor
+app.listen(port, function(){
+	console.log('Listening on por: ' + port);
+});
+
+
+
+===================================================================================================================
+
+
+package.json:
+
+
+{
+  "name": "mini-social",
+  "version": "1.0.0",
+  "description": "Mini Social Network App",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "devnatiums",
+  "license": "BSD-2-Clause",
+  "dependencies": {
+    "express": "~4.14.0",
+    "body-parser": "~1.15.2",
+    "ejs": "~2.5.2",
+    "express-session": "^1.7.6",
+    "mongojs": "~2.4.0",
+    "multer": "~1.2.0",
+    "moment": "~2.15.1"
+  },
+  "devDependencies": {
+    "nodemon": "~1.10.2"
+  }
+}
+</pre>
+</body>
+</html>
